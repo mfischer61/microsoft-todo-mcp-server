@@ -1,7 +1,9 @@
 // src/token-manager.ts
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, readFileSync, writeFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
+
+import { FileTokenStore, resolveTokenFilePath, type StoredTokenData, type TokenStore } from "./token-store.js"
 
 interface TokenData {
   accessToken: string
@@ -9,29 +11,28 @@ interface TokenData {
   expiresAt: number
 }
 
-interface StoredTokenData extends TokenData {
-  clientId?: string
-  clientSecret?: string
-  tenantId?: string
-}
-
 export class TokenManager {
-  private tokenFilePath: string
+  private readonly tokenFilePath: string
+  private readonly store: TokenStore
   private currentTokens: StoredTokenData | null = null
 
-  constructor() {
-    // Store tokens in a consistent location across platforms
-    const configDir =
-      process.platform === "win32"
-        ? join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "microsoft-todo-mcp")
-        : join(homedir(), ".config", "microsoft-todo-mcp")
+  // Serializes concurrent refreshes. Microsoft's v2 token endpoint rotates
+  // the refresh token on every use: if two callers both read the same
+  // (still-valid-looking) refresh token and both POST it to the token
+  // endpoint before either write lands, the second request is presenting a
+  // refresh token that the first request's response already invalidated, and
+  // fails. That race is exactly what "seamless" token refresh promises not
+  // to do. On a single Node process, the async operations here are
+  // interleaved but never run in parallel, so a plain in-memory "is a
+  // refresh already in flight" flag is enough to close it -- no external
+  // lock is needed, which is also why the deployment is pinned to exactly
+  // one Cloud Run instance (see deploy/README.md): that flag only protects
+  // this one process, not a second instance racing it.
+  private refreshInFlight: Promise<TokenData | null> | null = null
 
-    // Create directory if it doesn't exist
-    if (!existsSync(configDir)) {
-      mkdirSync(configDir, { recursive: true })
-    }
-
-    this.tokenFilePath = join(configDir, "tokens.json")
+  constructor(store?: TokenStore) {
+    this.tokenFilePath = resolveTokenFilePath()
+    this.store = store ?? new FileTokenStore(this.tokenFilePath)
     console.error(`Token file path: ${this.tokenFilePath}`)
   }
 
@@ -56,26 +57,21 @@ export class TokenManager {
       return envTokens
     }
 
-    // 2. Check stored token file
-    if (existsSync(this.tokenFilePath)) {
-      try {
-        const data = readFileSync(this.tokenFilePath, "utf8")
-        this.currentTokens = JSON.parse(data)
+    // 2. Check the token store (a local file, or a file on a mounted Cloud
+    // Storage volume -- see token-store.ts)
+    const stored = this.store.read()
+    if (stored) {
+      this.currentTokens = stored
 
-        if (this.currentTokens) {
-          // Check if expired
-          if (Date.now() > this.currentTokens.expiresAt) {
-            // Try to refresh
-            const refreshed = await this.refreshToken(this.currentTokens.refreshToken)
-            if (refreshed) {
-              return refreshed
-            }
-          }
-          return this.currentTokens
+      // Check if expired
+      if (Date.now() > stored.expiresAt) {
+        // Try to refresh
+        const refreshed = await this.refreshToken(stored.refreshToken)
+        if (refreshed) {
+          return refreshed
         }
-      } catch (error) {
-        console.error("Error reading token file:", error)
       }
+      return stored
     }
 
     // 3. Check legacy token file location
@@ -98,6 +94,22 @@ export class TokenManager {
   }
 
   async refreshToken(refreshToken: string): Promise<TokenData | null> {
+    // Join an in-flight refresh instead of starting a second one. See the
+    // comment on refreshInFlight above for why this matters.
+    if (this.refreshInFlight) {
+      console.error("Refresh already in flight, joining it instead of starting a second one")
+      return this.refreshInFlight
+    }
+
+    this.refreshInFlight = this.doRefreshToken(refreshToken)
+    try {
+      return await this.refreshInFlight
+    } finally {
+      this.refreshInFlight = null
+    }
+  }
+
+  private async doRefreshToken(refreshToken: string): Promise<TokenData | null> {
     try {
       // Get client credentials from stored tokens or environment
       const clientId = this.currentTokens?.clientId || process.env.CLIENT_ID
@@ -163,7 +175,7 @@ export class TokenManager {
 
   saveTokens(tokens: StoredTokenData): void {
     this.currentTokens = tokens
-    writeFileSync(this.tokenFilePath, JSON.stringify(tokens, null, 2), "utf8")
+    this.store.write(tokens)
   }
 
   // Update Claude config automatically

@@ -257,9 +257,50 @@ That means:
   There _is_ no session.
 
 The only thing that legitimately has to survive across requests and instances is the OAuth
-token cache, and that's handled separately — see the token cache and deployment sections below,
-which cover why Cloud Run is the target, how the token cache is kept safe under concurrency, and
-the exact `gcloud` commands to deploy.
+token cache, and that's handled separately — see the next section.
+
+### Token cache: surviving cold starts without racing itself
+
+The original token cache (`tokens.json` on local disk, refreshed automatically ~5 minutes before
+expiry) works fine for a long-lived local process. It has two problems as soon as the process
+can be killed and restarted by something else, which is exactly what Cloud Run does to
+containers between requests:
+
+1. **Cold starts wipe the cache.** A fresh container has an empty filesystem, so every cold
+   start would force a full re-auth unless the cache lives somewhere that outlives the
+   container.
+2. **Concurrent refreshes can race each other.** Microsoft's v2 token endpoint _rotates_ the
+   refresh token on every use — the response contains a new one, and the old one stops working.
+   If two requests both see an expired token and both call the refresh endpoint with the same
+   refresh token before either write lands, the second call is presenting a refresh token the
+   first call's response already invalidated. Depending on timing, that either fails outright or
+   quietly clobbers the token file with a stale value.
+
+**Fix for (1): mount a Cloud Storage bucket as a volume, not the GCS client SDK.** Cloud Run
+(gen2 execution environment) can mount a GCS bucket into the container's filesystem via
+[Cloud Storage FUSE volumes](https://cloud.google.com/run/docs/configuring/services/cloud-storage-volume-mounts) —
+no application code talks to the `@google-cloud/storage` API at all. `MSTODO_TOKEN_FILE` (an env
+var this repo already supported) is simply pointed at a path under the mount, e.g.
+`/mnt/token-cache/tokens.json`. `token-store.ts` doesn't know or care that the directory happens
+to be a bucket; it just reads and writes a JSON file, the same as it always did locally.
+
+The one thing a network filesystem doesn't give you for free is atomic writes, so `FileTokenStore`
+writes to a temp file in the same directory and renames it into place — a reader only ever sees
+the fully-written previous version or the fully-written new one, never a torn write from a
+container that got killed mid-save.
+
+**Fix for (2): an in-process refresh mutex, plus pinning the service to one instance.** Inside a
+single Node process, `TokenManager` now tracks an in-flight refresh promise; a second caller that
+shows up while a refresh is already running joins that promise instead of firing a second
+request at Microsoft. That closes the race _within one instance_. It cannot close it _across_
+instances — two separate Cloud Run containers each have their own in-memory flag and could still
+race each other through the shared bucket. Rather than build cross-instance distributed locking
+(a `.lock` file with a TTL, or a Firestore/Redis-backed mutex) for a personal task-management
+server, the deployment pins `--min-instances=1 --max-instances=1`: there is only ever one
+instance, so the in-process mutex is the whole story. See
+[Remote / HTTP Deployment](#remote--http-deployment-cloud-run) for the exact flags. If this ever
+needed to scale to multiple instances, the honest fix would be a real distributed lock around
+the refresh, not a bigger in-memory flag.
 
 ## MCP Tools
 
