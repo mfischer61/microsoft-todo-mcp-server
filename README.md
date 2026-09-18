@@ -1,5 +1,13 @@
 # Microsoft To Do MCP
 
+> **Fork notice:** this is Matthew Fischer's fork of
+> [jordanburke/microsoft-todo-mcp-server](https://github.com/jordanburke/microsoft-todo-mcp-server)
+> (MIT licensed), which is itself a fork of [jhirono/todomcp](https://github.com/jhirono/todomcp).
+> All 15 original tools and the stdio transport are unchanged. This fork adds a stateless
+> Streamable HTTP transport, a Cloud Run deployment, a cold-start-safe token cache, and one
+> additional tool — see [Remote / HTTP Deployment](#remote--http-deployment-cloud-run) below.
+> See [LICENSE](LICENSE) for the full attribution chain.
+
 [![CI](https://github.com/jordanburke/microsoft-todo-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/jordanburke/microsoft-todo-mcp-server/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/microsoft-todo-mcp-server.svg)](https://www.npmjs.com/package/microsoft-todo-mcp-server)
 
@@ -335,7 +343,8 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ## Acknowledgments
 
-- Fork of [@jhirono/todomcp](https://github.com/jhirono/todomcp)
+- This fork: [jordanburke/microsoft-todo-mcp-server](https://github.com/jordanburke/microsoft-todo-mcp-server) by Jordan Burke — all 15 original tools, the stdio transport, and the token-refresh design are his work
+- Which is a fork of [@jhirono/todomcp](https://github.com/jhirono/todomcp)
 - Built on the [Model Context Protocol SDK](https://github.com/modelcontextprotocol/sdk)
 - Uses [Microsoft Graph API](https://developer.microsoft.com/en-us/graph)
 

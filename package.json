@@ -32,7 +32,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jordanburke/microsoft-todo-mcp-server.git"
+    "url": "git+https://github.com/mfischer61/microsoft-todo-mcp-server.git"
   },
   "keywords": [
     "mcp",
@@ -42,11 +42,12 @@
     "todo"
   ],
   "author": "Jordan Burke <jordan.burke@gmail.com>",
+  "contributors": ["Matthew Fischer (fork maintainer) <matthewkfischer15@gmail.com>"],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/jordanburke/microsoft-todo-mcp-server/issues"
+    "url": "https://github.com/mfischer61/microsoft-todo-mcp-server/issues"
   },
-  "homepage": "https://github.com/jordanburke/microsoft-todo-mcp-server#readme",
+  "homepage": "https://github.com/mfischer61/microsoft-todo-mcp-server#readme",
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.21",
