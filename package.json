@@ -42,7 +42,9 @@
     "todo"
   ],
   "author": "Jordan Burke <jordan.burke@gmail.com>",
-  "contributors": ["Matthew Fischer (fork maintainer) <matthewkfischer15@gmail.com>"],
+  "contributors": [
+    "Matthew Fischer (fork maintainer) <matthewkfischer15@gmail.com>"
+  ],
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/mfischer61/microsoft-todo-mcp-server/issues"
