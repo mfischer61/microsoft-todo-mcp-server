@@ -1,0 +1,59 @@
+# Declarative equivalent of the `gcloud run deploy` command in README.md.
+# Apply with:
+#   gcloud run services replace deploy/service.yaml --region=REGION --project=PROJECT_ID
+#
+# Placeholders (PROJECT_ID, REGION, IMAGE, BUCKET_NAME) must be substituted
+# before applying -- e.g. `envsubst < deploy/service.yaml | gcloud run services replace -`.
+# CLIENT_ID / CLIENT_SECRET / TENANT_ID are intentionally NOT in this file:
+# put secrets in Secret Manager and reference them, or pass them with
+# `--update-env-vars` after the initial deploy, rather than committing them
+# to a file that ends up in version control.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: microsoft-todo-mcp-server
+  annotations:
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        # gen2 is required for Cloud Storage volume mount support.
+        run.googleapis.com/execution-environment: gen2
+        # Pinned to exactly one instance: the in-process token-refresh mutex
+        # (token-manager.ts) only protects a single process from racing
+        # itself, not two instances racing each other through the shared
+        # bucket. See README.md's "Token cache" section for the full
+        # rationale.
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+    spec:
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/mstodo/microsoft-todo-mcp-server:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MSTODO_TOKEN_FILE
+              value: /mnt/token-cache/tokens.json
+          volumeMounts:
+            - name: token-cache
+              mountPath: /mnt/token-cache
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 30
+      volumes:
+        - name: token-cache
+          csi:
+            driver: gcsfuse.run.googleapis.com
+            volumeAttributes:
+              bucketName: BUCKET_NAME

@@ -16,6 +16,7 @@
     "build:watch": "ts-builds build:watch",
     "dev": "ts-builds build && node dist/cli.js",
     "start": "node dist/todo-index.js",
+    "start:http": "MCP_TRANSPORT=http node dist/todo-index.js",
     "cli": "node dist/cli.js",
     "auth": "node dist/auth-server.js",
     "setup": "node dist/setup.js",
