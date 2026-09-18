@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.github
+*.md
+!README.md
+tokens.json
+.env
+.env.*
+coverage
+deploy
+*.test.ts
