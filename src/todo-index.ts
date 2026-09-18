@@ -1728,6 +1728,129 @@ export function createTodoServer(): McpServer {
     },
   )
 
+  // The 16th tool: cross-list overdue task lookup. The Graph API's $filter
+  // support for todo tasks does not reliably cover dueDateTime (it's a
+  // complex dateTimeTimeZone property, not a simple scalar), so "what's
+  // overdue" is not something you can ask the API directly in one call --
+  // you have to pull active tasks per list and compare due dates yourself.
+  // get-tasks already lets a caller do that for ONE list; this does it
+  // across every list (or one, if given) and sorts by how overdue each task
+  // is, which is the actual question a user asks ("what's overdue?"), not
+  // the per-list mechanics of getting there.
+  server.tool(
+    "get-overdue-tasks",
+    "Find tasks that are overdue (due date in the past and not completed), across all task lists " +
+      "or one specific list. Unlike get-tasks' $filter, this compares due dates locally because " +
+      "the Graph API doesn't support filtering To Do tasks by due date directly. Results are " +
+      "sorted with the most overdue task first.",
+    {
+      listId: z.string().optional().describe("Limit the search to one task list ID. Omit to check every list."),
+      asOf: z
+        .string()
+        .optional()
+        .describe(
+          "ISO date-time to treat as 'now' when deciding what's overdue (e.g. for a report as of a past date). Defaults to the current time.",
+        ),
+    },
+    async ({ listId, asOf }) => {
+      try {
+        const token = await getAccessToken()
+        if (!token) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Failed to authenticate with Microsoft API",
+              },
+            ],
+          }
+        }
+
+        const referenceTime = asOf ? new Date(asOf) : new Date()
+        if (Number.isNaN(referenceTime.getTime())) {
+          return {
+            content: [{ type: "text", text: `Invalid asOf value: "${asOf}". Expected an ISO date-time string.` }],
+          }
+        }
+
+        const listsResponse = await makeGraphRequest<{ value: TaskList[] }>(`${MS_GRAPH_BASE}/me/todo/lists`, token)
+        if (!listsResponse) {
+          return { content: [{ type: "text", text: "Failed to retrieve task lists" }] }
+        }
+
+        let lists = listsResponse.value || []
+        if (listId) {
+          lists = lists.filter((list) => list.id === listId)
+          if (lists.length === 0) {
+            return { content: [{ type: "text", text: `No task list found with ID: ${listId}` }] }
+          }
+        }
+
+        interface OverdueEntry {
+          list: TaskList
+          task: Task
+          daysOverdue: number
+        }
+        const overdue: OverdueEntry[] = []
+
+        for (const list of lists) {
+          // status ne 'completed' IS a filter the API supports (a simple
+          // scalar property) -- narrowing server-side here is a real
+          // optimization, not just decoration.
+          const tasksResponse = await makeGraphRequest<{ value: Task[] }>(
+            `${MS_GRAPH_BASE}/me/todo/lists/${list.id}/tasks?$filter=status ne 'completed'`,
+            token,
+          )
+
+          for (const task of tasksResponse?.value ?? []) {
+            const dueDateTime = task.dueDateTime?.dateTime
+            if (!dueDateTime) continue
+
+            const due = new Date(dueDateTime)
+            if (Number.isNaN(due.getTime()) || due >= referenceTime) continue
+
+            const daysOverdue = Math.floor((referenceTime.getTime() - due.getTime()) / (24 * 60 * 60 * 1000))
+            overdue.push({ list, task, daysOverdue })
+          }
+        }
+
+        if (overdue.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: listId ? `No overdue tasks in list ${listId}.` : "No overdue tasks in any list. Nice.",
+              },
+            ],
+          }
+        }
+
+        overdue.sort((a, b) => b.daysOverdue - a.daysOverdue)
+
+        const scope = listId ? "" : ` across ${lists.length} list${lists.length === 1 ? "" : "s"}`
+        let output = `${overdue.length} overdue task${overdue.length === 1 ? "" : "s"}${scope}:\n\n`
+
+        overdue.forEach(({ list, task, daysOverdue }) => {
+          const dueDate = new Date(task.dueDateTime!.dateTime).toLocaleDateString()
+          output += `- [${list.displayName}] ${task.title}\n`
+          output += `  ${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue (was due ${dueDate})\n`
+          output += `  Task ID: ${task.id} | List ID: ${list.id}\n`
+        })
+
+        return { content: [{ type: "text", text: output }] }
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error finding overdue tasks: ${error}`,
+            },
+          ],
+        }
+      }
+    },
+  )
+
   // Test tool to explore Graph API for hidden properties
   server.tool(
     "test-graph-api-exploration",
