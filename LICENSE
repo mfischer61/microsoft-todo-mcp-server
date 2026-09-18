@@ -1,6 +1,7 @@
 MIT License
 
 Copyright (c) 2025 Jordan Burke
+Copyright (c) 2026 Matthew Fischer (fork: HTTP transport, Cloud Run deployment, additional tooling)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,3 +25,6 @@ SOFTWARE.
 
 This project is a fork of todoMCP by jhirono (https://github.com/jhirono/todoMCP),
 originally licensed under the ISC License.
+
+This particular copy is, in turn, a fork of jordanburke/microsoft-todo-mcp-server
+(https://github.com/jordanburke/microsoft-todo-mcp-server), also MIT licensed.
