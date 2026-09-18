@@ -15,7 +15,7 @@ A Model Context Protocol (MCP) server that enables AI assistants like Claude and
 
 ## Features
 
-- **15 MCP Tools**: Complete task management functionality including lists, tasks, checklist items, and organization features
+- **16 MCP Tools**: Complete task management functionality including lists, tasks, checklist items, and organization features
 - **Seamless Authentication**: Automatic token refresh with zero manual intervention
 - **OAuth 2.0 Authentication**: Secure authentication with automatic token refresh
 - **Microsoft Graph API Integration**: Direct integration with Microsoft's official API
@@ -304,7 +304,13 @@ the refresh, not a bigger in-memory flag.
 
 ## MCP Tools
 
-The server provides 13 tools for comprehensive Microsoft To Do management:
+The server provides 16 tools for comprehensive Microsoft To Do management: the 15 from upstream,
+plus `get-overdue-tasks` added in this fork.
+
+<!-- Note: upstream's README said "13 tools" here and was missing get-task-lists-organized and
+     archive-completed-tasks below, even though both are registered in src/todo-index.ts. Fixed
+     while editing this section for the fork's own addition -- unrelated to this fork's actual
+     changes, just a pre-existing doc/code drift caught in passing. -->
 
 ### Authentication
 
@@ -313,6 +319,8 @@ The server provides 13 tools for comprehensive Microsoft To Do management:
 ### Task Lists (Top-level Containers)
 
 - **`get-task-lists`** - Retrieve all task lists with metadata (default, shared, etc.)
+- **`get-task-lists-organized`** - Same, grouped into categories/folders by naming pattern or
+  sharing status
 - **`create-task-list`** - Create a new task list
 - **`update-task-list`** - Rename an existing task list
 - **`delete-task-list`** - Delete a task list and all its contents
@@ -325,6 +333,12 @@ The server provides 13 tools for comprehensive Microsoft To Do management:
   - Title, description, due date, start date, importance, reminders, status, categories
 - **`update-task`** - Update any task properties
 - **`delete-task`** - Delete a task and all its checklist items
+- **`archive-completed-tasks`** - Move completed tasks older than N days to another list
+- **`get-overdue-tasks`** _(added in this fork)_ - Find tasks with a past due date that aren't
+  completed, across one list or all of them, sorted most-overdue-first. The Graph API's `$filter`
+  doesn't reliably support filtering by due date (it's a nested `dateTimeTimeZone` property, not
+  a plain scalar), so this pulls active tasks per list and compares due dates locally — something
+  `get-tasks` can already do for one list at a time, this just does it everywhere in one call.
 
 ### Checklist Items (Subtasks)
 
