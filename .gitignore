@@ -37,3 +37,7 @@ tokens.json
 .DS_Store
 
 mcp.json
+
+# Cloud Run deploy secrets
+.cloudrun-secret
+.cloudrun-path

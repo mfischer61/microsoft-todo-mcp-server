@@ -72,6 +72,9 @@ builds in Cloud Build instead of locally — that's what `deploy.sh` in this dir
 
 ```bash
 export SERVICE_NAME="microsoft-todo-mcp-server"
+# Required: the HTTP transport won't start without these (see below).
+export MCP_SHARED_SECRET="$(openssl rand -hex 24)"
+export MCP_SECRET_PATH="$(openssl rand -hex 16)"
 
 gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
@@ -80,7 +83,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --execution-environment=gen2 \
   --add-volume=name=token-cache,type=cloud-storage,bucket="${BUCKET_NAME}" \
   --add-volume-mount=volume=token-cache,mount-path=/mnt/token-cache \
-  --set-env-vars="MCP_TRANSPORT=http,MSTODO_TOKEN_FILE=/mnt/token-cache/tokens.json,CLIENT_ID=${CLIENT_ID},CLIENT_SECRET=${CLIENT_SECRET},TENANT_ID=${TENANT_ID}" \
+  --set-env-vars="MCP_TRANSPORT=http,MSTODO_TOKEN_FILE=/mnt/token-cache/tokens.json,CLIENT_ID=${CLIENT_ID},CLIENT_SECRET=${CLIENT_SECRET},TENANT_ID=${TENANT_ID},MCP_SHARED_SECRET=${MCP_SHARED_SECRET},MCP_SECRET_PATH=${MCP_SECRET_PATH}" \
   --min-instances=1 \
   --max-instances=1 \
   --allow-unauthenticated \
@@ -96,11 +99,15 @@ Two flags are load-bearing, not defaults left in by habit:
   deployment does not scale to zero and does not scale out under load — an acceptable tradeoff
   for a single personal task-management integration, not a decision to make silently on a
   service meant to handle real traffic.
-- **`--allow-unauthenticated`**: whether this is correct depends entirely on your threat model.
-  This server does not implement its own auth on top of MCP — it trusts whatever calls `/mcp`.
-  If the calling agent platform can authenticate via Cloud Run's built-in IAM (Google-signed ID
-  tokens) instead, remove this flag and configure the caller to send an `Authorization: Bearer
-<token>` header; that's the safer default for anything beyond a personal experiment.
+- **`--allow-unauthenticated`**: lets hosted agents (claude.ai custom connectors) reach the
+  service without Google IAM credentials. The app enforces its own gate instead: every `/mcp`
+  request must send `Authorization: Bearer ${MCP_SHARED_SECRET}`, or call
+  `/${MCP_SECRET_PATH}/mcp`, where the unguessable path is itself the credential (for connector
+  UIs that can't set headers). The server refuses to start in HTTP mode if neither variable is
+  set, and both must be at least 16 characters. `/healthz` stays open for Cloud Run's probes.
+  Generate them with e.g. `openssl rand -hex 24`; `deploy.sh` does this for you and saves them
+  to the gitignored `.cloudrun-secret` / `.cloudrun-path`. Note the secret path appears in
+  Cloud Run request logs, so prefer the header when the client supports it.
 
 ## 4. Grant the runtime service account access to the bucket
 

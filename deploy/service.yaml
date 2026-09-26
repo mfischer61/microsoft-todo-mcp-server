@@ -4,7 +4,9 @@
 #
 # Placeholders (PROJECT_ID, REGION, IMAGE, BUCKET_NAME) must be substituted
 # before applying -- e.g. `envsubst < deploy/service.yaml | gcloud run services replace -`.
-# CLIENT_ID / CLIENT_SECRET / TENANT_ID are intentionally NOT in this file:
+# CLIENT_ID / CLIENT_SECRET / TENANT_ID and MCP_SHARED_SECRET / MCP_SECRET_PATH
+# (required -- the HTTP transport refuses to start without one of the latter
+# two) are intentionally NOT in this file:
 # put secrets in Secret Manager and reference them, or pass them with
 # `--update-env-vars` after the initial deploy, rather than committing them
 # to a file that ends up in version control.

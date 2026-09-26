@@ -10,11 +10,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createHttpApp } from "./http-transport.js"
 
+const SHARED_SECRET = "test-shared-secret-0123456789"
+const SECRET_PATH = "test-secret-path-0123456789"
+
 let httpServer: HttpServer
 let baseUrl: URL
 
 beforeEach(async () => {
-  const app = createHttpApp()
+  const app = createHttpApp({ sharedSecret: SHARED_SECRET, secretPath: SECRET_PATH })
   await new Promise<void>((resolve) => {
     httpServer = app.listen(0, "127.0.0.1", resolve)
   })
@@ -26,11 +29,14 @@ afterEach(async () => {
   await new Promise<void>((resolve) => httpServer.close(() => resolve()))
 })
 
-async function connectClient(): Promise<Client> {
+async function connectClient(
+  url: URL = baseUrl,
+  headers: Record<string, string> = { Authorization: `Bearer ${SHARED_SECRET}` },
+): Promise<Client> {
   const client = new Client({ name: "test-client", version: "1.0.0" })
   // sessionIdGenerator: undefined on the server means it never returns a
   // session ID, so the client transport must not expect or reuse one either.
-  const transport = new StreamableHTTPClientTransport(baseUrl)
+  const transport = new StreamableHTTPClientTransport(url, { requestInit: { headers } })
   await client.connect(transport)
   return client
 }
@@ -94,10 +100,11 @@ describe("stateless streamable HTTP transport", () => {
   })
 
   it("answers GET and DELETE on /mcp with 405, since stateless mode has no stream or session to act on", async () => {
-    const getRes = await fetch(baseUrl, { method: "GET" })
+    const headers = { Authorization: `Bearer ${SHARED_SECRET}` }
+    const getRes = await fetch(baseUrl, { method: "GET", headers })
     expect(getRes.status).toBe(405)
 
-    const deleteRes = await fetch(baseUrl, { method: "DELETE" })
+    const deleteRes = await fetch(baseUrl, { method: "DELETE", headers })
     expect(deleteRes.status).toBe(405)
   })
 
@@ -105,5 +112,57 @@ describe("stateless streamable HTTP transport", () => {
     const res = await fetch(new URL("/healthz", baseUrl))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ status: "ok" })
+  })
+})
+
+describe("shared-secret gate", () => {
+  const initialize = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "probe", version: "1.0.0" } },
+  })
+  const jsonHeaders = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }
+
+  it("rejects /mcp with no Authorization header", async () => {
+    const res = await fetch(baseUrl, { method: "POST", headers: jsonHeaders, body: initialize })
+    expect(res.status).toBe(401)
+  })
+
+  it("rejects /mcp with the wrong bearer secret", async () => {
+    const res = await fetch(baseUrl, {
+      method: "POST",
+      headers: { ...jsonHeaders, Authorization: "Bearer wrong-secret-wrong-secret" },
+      body: initialize,
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it("accepts the secret path without a header, for connector UIs that can't set one", async () => {
+    const client = await connectClient(new URL(`/${SECRET_PATH}/mcp`, baseUrl), {})
+    expect(client.getServerVersion()?.name).toBe("mstodo")
+    await client.close()
+  })
+
+  it("does not serve MCP under a wrong path prefix", async () => {
+    const res = await fetch(new URL("/not-the-secret-path-at-all/mcp", baseUrl), {
+      method: "POST",
+      headers: jsonHeaders,
+      body: initialize,
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it("keeps /healthz open so Cloud Run probes don't need the secret", async () => {
+    const res = await fetch(new URL("/healthz", baseUrl))
+    expect(res.status).toBe(200)
+  })
+
+  it("refuses to build the app with no secret configured (fails closed)", () => {
+    expect(() => createHttpApp({})).toThrow(/MCP_SHARED_SECRET/)
+  })
+
+  it("refuses secrets shorter than 16 characters", () => {
+    expect(() => createHttpApp({ sharedSecret: "short" })).toThrow(/at least 16/)
   })
 })
