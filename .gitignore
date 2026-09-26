@@ -36,3 +36,4 @@ tokens.json
 *.sw?
 .DS_Store
 
+mcp.json
